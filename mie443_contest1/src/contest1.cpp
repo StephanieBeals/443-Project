@@ -21,7 +21,7 @@ float posX=0.0, posY=0.0, yaw=0.0;
 uint8_t bumper[3]={kobuki_msgs::BumperEvent::RELEASED, kobuki_msgs::BumperEvent::RELEASED, kobuki_msgs::BumperEvent::RELEASED};
 
 float minLaserDist=std::numeric_limits<float>::infinity();
-int32_t nLasers=0, desiredNLasers=0, desiredAngle=2;
+int32_t nLasers=0, desiredNLasers=0, desiredAngle=7;
 
 void bumperCallback(const kobuki_msgs::BumperEvent::ConstPtr& msg)
 {
@@ -78,36 +78,25 @@ int main(int argc, char **argv)
     start = std::chrono::system_clock::now();
     uint64_t secondsElapsed = 0;
 
-    
+    int state=0;
+    uint64_t turnStart=0;
 
     while(ros::ok() && secondsElapsed <= 480) {
         ros::spinOnce();
 
         if(minLaserDist>0.55){
-            linear=0.2;
-        } else if (minLaserDist<0.55){
-            float currYaw=yaw;
-            angular=0.2;
-            linear=0;
-        }
-        /*
-        bool any_bumper_pressed=false;
-        for (uint32_t b_idx = 0; b_idx<N_BUMPER;++b_idx){
-            any_bumper_pressed |=(bumper[b_idx]==kobuki_msgs::BumperEvent::PRESSED);
-        }
-        if(posX<0.5 && yaw<M_PI/12 && !any_bumper_pressed){
+            linear=0.4;
             angular=0.0;
-            linear=0.2;
+            state=0;
+        } else if (minLaserDist<0.55 || minLaserDist==std::numeric_limits<float>::infinity()){
+            turnStart=secondsElapsed;
+            while(secondsElapsed-turnStart<2){
+                angular=0.4;
+                linear=0.0;
+                secondsElapsed = std::chrono::duration_cast<std::chrono::seconds>(std::chrono::system_clock::now()-start).count();
+            }
         }
-        else if (yaw<M_PI/2 && posX>0.5 && !any_bumper_pressed){
-            angular=M_PI/6;
-            linear=0.0;
-        }
-        else {
-            angular=0.0;
-            linear=0.0;
-        }*/
-        //linear=0.2;
+        
 
         
 
