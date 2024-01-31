@@ -21,7 +21,7 @@ float posX=0.0, posY=0.0, yaw=0.0;
 uint8_t bumper[3]={kobuki_msgs::BumperEvent::RELEASED, kobuki_msgs::BumperEvent::RELEASED, kobuki_msgs::BumperEvent::RELEASED};
 
 float minLaserDist=std::numeric_limits<float>::infinity();
-int32_t nLasers=0, desiredNLasers=0, desiredAngle=7;
+int32_t nLasers=0, desiredNLasers=0, desiredAngle=15;
 
 void bumperCallback(const kobuki_msgs::BumperEvent::ConstPtr& msg)
 {
@@ -84,31 +84,34 @@ int main(int argc, char **argv)
     while(ros::ok() && secondsElapsed <= 480) {
         ros::spinOnce();
 
-        if(minLaserDist>0.55){
+        if(minLaserDist>0.75 && minLaserDist!=std::numeric_limits<float>::infinity()){
             linear=0.4;
             angular=0.0;
             state=0;
-        } else if (minLaserDist<0.55 || minLaserDist==std::numeric_limits<float>::infinity()){
+            vel.angular.z = angular;
+            vel.linear.x = linear;
+            vel_pub.publish(vel);
+        } else if (minLaserDist<0.75 || minLaserDist==std::numeric_limits<float>::infinity()){
             turnStart=secondsElapsed;
-            while(secondsElapsed-turnStart<2){
-                angular=0.4;
+            while(secondsElapsed-turnStart<=3){
+                angular=M_PI/6;
                 linear=0.0;
                 secondsElapsed = std::chrono::duration_cast<std::chrono::seconds>(std::chrono::system_clock::now()-start).count();
+                vel.angular.z = angular;
+                vel.linear.x = linear;
+                vel_pub.publish(vel);
             }
         }
         
-
-        
-
-
-        vel.angular.z = angular;
-        vel.linear.x = linear;
-        vel_pub.publish(vel);
-
-        // The last thing to do is to update the timer.
         secondsElapsed = std::chrono::duration_cast<std::chrono::seconds>(std::chrono::system_clock::now()-start).count();
         loop_rate.sleep();
     }
 
     return 0;
+}
+
+float displaceYawTime(float yawDispDeg, float angularVel){
+    float yawDispRad=DEG2RAD(yawDispDeg);
+    float timeToTurn=yawDispRad/angularVel;
+    return timeToTurn;
 }
