@@ -31,10 +31,13 @@ bool dynMem=false;
 float* laserVals;
 int minLaserIdx;
 
+bool bumperPressed=false;
+
 void bumperCallback(const kobuki_msgs::BumperEvent::ConstPtr& msg)
 {
 	//fill with your code
     bumper[msg->bumper]=msg->state;
+    //Add condition for bumperPressed here
 }
 //Go to https://docs.ros.org/en/api/sensor_msgs/html/msg/LaserScan.html
 void laserCallback(const sensor_msgs::LaserScan::ConstPtr& msg)
@@ -67,7 +70,7 @@ void laserCallback(const sensor_msgs::LaserScan::ConstPtr& msg)
                 minLaserDist = msg->ranges[laser_idx];
                 minLaserIdx=laser_idx;
             }
-            laserVals[laserValIndex]=msg->[laser_idx];
+            laserVals[laserValIndex]=msg->ranges[laser_idx];
             laserValIndex++;
         }
     }
@@ -95,6 +98,9 @@ bool timeout(uint64_t limit, std::chrono::time_point<std::chrono::system_clock> 
 
 bool firstRun=true; //Global variable for if you want something to run only once
 
+uint8_t state=0;
+bool doLook=false;
+
 int main(int argc, char **argv)
 {
     ros::init(argc, argv, "image_listener");
@@ -114,9 +120,8 @@ int main(int argc, char **argv)
     std::chrono::time_point<std::chrono::system_clock> start;
     start = std::chrono::system_clock::now();
     uint64_t secondsElapsed = 0;
-    uint8_t state=0;
+    
 
-    int state=0;
     float distParam=0.8;
 
     while(ros::ok() && secondsElapsed <= 480) {
@@ -136,7 +141,7 @@ int main(int argc, char **argv)
 
         }
 
-        
+        //Add a timer and conditional here for doLook
 
         /*
         if(minLaserDist>0.75 && minLaserDist!=std::numeric_limits<float>::infinity()){
@@ -179,7 +184,7 @@ int main(int argc, char **argv)
 void navLogic(){
     //navLogic decides which states to enter, reactive states are the first few if statements in order of priority, proactive later
     //Last state is default,move in a straight line forward
-    float distParam=0.8
+    float distParam=0.8;
     if (bumperPressed){ 
         linear=0;
         angular=0;
@@ -206,7 +211,7 @@ bool decideDirection(){
     float minDist2=minLaserDist;
     if (minDist1>minDist2) displaceYaw(90);
     else displaceYaw(270);
-    return;
+    return false; //Return false for left, true for right
 }
 
 void orientToNormal(){
@@ -221,16 +226,17 @@ void orientToNormal(){
     while(getNormDist>distGoal || !timeout(4000, startPt)){
     }
     */
+    /*
     getNormalDirection();
     angular=+/-angularVel;
     if(facingNormal){
         state=0;
     } else {return;}
-    
+    */
 }
 
 bool timeout(uint64_t limit, std::chrono::time_point<std::chrono::system_clock> startPt){ //Non-blocking timer
-    //Create a time point at when your timer starts and pass it in (see 'now' or 'start' for examples)
+    //Create a time point at when your timer starts and pass it in to this function (see 'now' or 'start' for examples)
     //Returns true if the limit has passed since the timer start was initialized
     //Runs in milliseconds
     auto now = std::chrono::system_clock::now();
@@ -238,7 +244,7 @@ bool timeout(uint64_t limit, std::chrono::time_point<std::chrono::system_clock> 
     else return true;
 }
 
-float idxToAng(int idx){
+float idxToAng(int idx){ //Takes the laser index and returns the angle. Can be negative
     idx=idx-desiredNLasers/2;
     return idx*angle_increment;
 }
