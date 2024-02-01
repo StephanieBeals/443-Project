@@ -29,7 +29,7 @@ int32_t nLasers=0, desiredNLasers=0, desiredAngle=15;
 //Used in laser callback
 bool dynMem=false;
 float* laserVals;
-int minLaserIdx
+int minLaserIdx;
 
 void bumperCallback(const kobuki_msgs::BumperEvent::ConstPtr& msg)
 {
