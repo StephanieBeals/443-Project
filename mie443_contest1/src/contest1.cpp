@@ -86,7 +86,7 @@ void laserCallback(const sensor_msgs::LaserScan::ConstPtr& msg)
 
     //ROS_INFO("First entry: %f, mid entry: %f, last entry: %f", laserVals[laserIdxStart], laserVals[300], laserVals[laserIdxEnd]);
 
-    //ROS_INFO("Min dist: %f", minLaserDist);
+    ROS_INFO("Min dist: %f", minLaserDist);
 
 
 }
@@ -95,16 +95,17 @@ void odomCallback(const nav_msgs::Odometry::ConstPtr& msg){
     posX=msg->pose.pose.position.x;
     posY=msg->pose.pose.position.y;
     yaw=tf::getYaw(msg->pose.pose.orientation);
-    ROS_INFO("Position: (%f, %f) Orientation: %f rad or %f deg", posX, posY, yaw, RAD2DEG(yaw));
+    //ROS_INFO("Position: (%f, %f) Orientation: %f rad or %f deg", posX, posY, yaw, RAD2DEG(yaw));
 }
 
-void displaceYaw(int yawDispDeg);
 void navLogic();
 void bumperFailsafe();
 void orientToNormal();
 void moveToPt();
 float idxToAng(int idx);
 bool timeout(uint64_t limit, std::chrono::time_point<std::chrono::system_clock> startPt);
+float angularAdd(float *summand, float angAddend);
+void spinAround(); //Spin 180 degrees twice, or use a timer
 
 bool firstRun=true; //Global variable for if you want something to run only once
 
@@ -142,7 +143,8 @@ int main(int argc, char **argv)
 
         target_x=5;
         target_y=5;
-        moveToPt();
+        //moveToPt();
+        orientToNormal();
         //Detect obstacle in front first
 
         /*
@@ -203,7 +205,8 @@ int main(int argc, char **argv)
 //Left clear, right clear as supporting funcs
 void navLogic(){
     //navLogic decides which states to enter, reactive states are the first few if statements in order of priority, proactive later
-    //Last state is default,move in a straight line forward
+    //Last state is default, move in a straight line forward
+    //Need some way to remember last state
     float distParam=0.8;
     if (bumperPressed){ 
         linear=0;
@@ -236,24 +239,16 @@ bool decideDirection(){
 }*/
 
 void orientToNormal(){
-    
-    
-    /*
-    distGoal=minLaserDist+0.01; //Tolerance
-    displaceYaw(-30);
-    vel.angular.z=0.2;
-    normDist=getNormDist();
-    std::chrono::time_point<std::chrono::system_clock> startPt;
-    while(getNormDist>distGoal || !timeout(4000, startPt)){
-    }
-    */
-    /*
-    getNormalDirection();
-    angular=+/-angularVel;
-    if(facingNormal){
-        state=0;
-    } else {return;}
-    */
+    ROS_INFO("minLaserIdx: %d", minLaserIdx);
+    ROS_INFO("Bow dist: %f", laserVals[319]); 
+    linear=0.0;
+    if(minLaserIdx>340){
+        angular=0.1;
+    } else if (minLaserIdx<300){
+        angular=-0.1;
+    } else state=0;
+
+    return;
 }
 
 bool timeout(uint64_t limit, std::chrono::time_point<std::chrono::system_clock> startPt){ //Non-blocking timer
@@ -266,37 +261,9 @@ bool timeout(uint64_t limit, std::chrono::time_point<std::chrono::system_clock> 
 }
 
 float idxToAng(int idx){ //Takes the laser index and returns the angle. Can be negative
-    idx=idx-desiredNLasers/2;
+    idx=idx-nLasers;
     return idx*angle_increment;
 }
-
-/*
-void displaceYaw(int yawDispDeg){  //Deprecated, do not use
-    //Need some code handling negative or greater than 360 case.
-    float yawDispRad=DEG2RAD(yawDispDeg);
-    float angularVel=M_PI/6; //30 deg per sec
-    float timeToTurn=yawDispRad/angularVel;
-    std::chrono::time_point<std::chrono::system_clock> start;
-    start = std::chrono::system_clock::now();
-  //ros::Publisher vel_pub = nh.advertise<geometry_msgs::Twist>("cmd_vel_mux/input/teleop", 1);
-    ros::Publisher yaw_pub = nh.advertise<geometry_msgs::Twist>("cmd_vel_mux/input/teleop", 1);
-    geometry_msgs::Twist vel;
-    
-    auto yawStart =  std::chrono::system_clock::now();
-    uint64_t millisElapsed=0;
-    while(ros::ok() && millisElapsed<=timeToTurn*1000){
-        ros::spinOnce();
-        vel.angular.z=angularVel;
-        vel.linear.x=linear;
-        yaw_pub.publish(vel);
-
-        millisElapsed=std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now()-yawStart).count();
-    }
-
-
-
-    return;
-} */
 
 void moveToPt(){
     if (target_x==0.0 && target_y==0.0){
@@ -312,16 +279,17 @@ void moveToPt(){
         angular=0.4;
     } else {
         angular=0.0;
-        
-        if ((posX>target_x+0.1 || posX<target_x-0.1) || (posY>target_y+0.1 || posY<target_y-0.1)){
+        //I want to make this conditional more robust by checkign if displace is pos or negative, but cant figure it out for now
+        if ((posX>target_x+0.1 || posX<target_x-0.1) || (posY>target_y+0.1 || posY<target_y-0.1)){ 
             linear=0.2;
         } else {
             linear=0.0;
             angular=0.0;
         }
     }
-
-    
-
     return;
+}
+
+float angularAdd(float *summand, float angAddend){
+    return angAddend;
 }
