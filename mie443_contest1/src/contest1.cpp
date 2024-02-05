@@ -15,6 +15,8 @@
 #define N_BUMPER (3)
 #define RAD2DEG(rad) ((rad)*180./M_PI)
 #define DEG2RAD(deg) ((deg)*M_PI/180.)
+#define laserIdxStart nLasers/2-desiredNLasers
+#define laserIdxEnd nLasers / 2 + desiredNLasers - 1
 
 using Clock = std::chrono::system_clock;
 
@@ -26,10 +28,14 @@ uint8_t bumper[3]={kobuki_msgs::BumperEvent::RELEASED, kobuki_msgs::BumperEvent:
 float minLaserDist=std::numeric_limits<float>::infinity();
 int32_t nLasers=0, desiredNLasers=0, desiredAngle=15;
 
+float target_x = 0;
+float target_y = 0;
+
 //Used in laser callback
 bool dynMem=false;
-float* laserVals;
+float laserVals[639]={0.0};
 int minLaserIdx;
+float angle_increment;
 
 bool bumperPressed=false;
 
@@ -40,13 +46,15 @@ void bumperCallback(const kobuki_msgs::BumperEvent::ConstPtr& msg)
     //Add condition for bumperPressed here
 }
 //Go to https://docs.ros.org/en/api/sensor_msgs/html/msg/LaserScan.html
+//First entry is on robot right (-ve Y), going CCW around robot
 void laserCallback(const sensor_msgs::LaserScan::ConstPtr& msg)
 {
 	minLaserDist = std::numeric_limits<float>::infinity();
     nLasers = (msg->angle_max - msg->angle_min) / msg->angle_increment;
+    angle_increment = msg->angle_increment;
     desiredNLasers = desiredAngle*M_PI / (180*msg->angle_increment);
     if (!dynMem){
-        laserVals= new float(desiredNLasers+1); //+1 just in case?
+        //laserVals= new float(desiredNLasers*2+1); //+1 just in case?
         dynMem=true;
     }
 
@@ -59,8 +67,9 @@ void laserCallback(const sensor_msgs::LaserScan::ConstPtr& msg)
                 minLaserDist = msg->ranges[laser_idx];
                 minLaserIdx=laser_idx;
             }
-            laserVals[laserValIndex]=msg->ranges[laser_idx];
+            laserVals[laser_idx]=msg->ranges[laser_idx];
             laserValIndex++;
+            //if(laserValIndex>300) ROS_INFO("%d", laserValIndex);
         }
     }
     else {
@@ -70,14 +79,14 @@ void laserCallback(const sensor_msgs::LaserScan::ConstPtr& msg)
                 minLaserDist = msg->ranges[laser_idx];
                 minLaserIdx=laser_idx;
             }
-            laserVals[laserValIndex]=msg->ranges[laser_idx];
+            laserVals[laser_idx]=msg->ranges[laser_idx];
             laserValIndex++;
         }
     }
 
-    
+    //ROS_INFO("First entry: %f, mid entry: %f, last entry: %f", laserVals[laserIdxStart], laserVals[300], laserVals[laserIdxEnd]);
 
-    ROS_INFO("Min dist: %f", minLaserDist);
+    //ROS_INFO("Min dist: %f", minLaserDist);
 
 
 }
@@ -86,13 +95,14 @@ void odomCallback(const nav_msgs::Odometry::ConstPtr& msg){
     posX=msg->pose.pose.position.x;
     posY=msg->pose.pose.position.y;
     yaw=tf::getYaw(msg->pose.pose.orientation);
-    //ROS_INFO("Position: (%f, %f) Orientation: %f rad or %f deg", posX, posY, yaw, RAD2DEG(yaw));
+    ROS_INFO("Position: (%f, %f) Orientation: %f rad or %f deg", posX, posY, yaw, RAD2DEG(yaw));
 }
 
 void displaceYaw(int yawDispDeg);
 void navLogic();
 void bumperFailsafe();
 void orientToNormal();
+void moveToPt();
 float idxToAng(int idx);
 bool timeout(uint64_t limit, std::chrono::time_point<std::chrono::system_clock> startPt);
 
@@ -112,7 +122,7 @@ int main(int argc, char **argv)
 
     ros::Publisher vel_pub = nh.advertise<geometry_msgs::Twist>("cmd_vel_mux/input/teleop", 1);
 
-    ros::Rate loop_rate(100);
+    ros::Rate loop_rate(10);
 
     geometry_msgs::Twist vel;
 
@@ -128,8 +138,14 @@ int main(int argc, char **argv)
         ros::spinOnce();
         auto now =  std::chrono::system_clock::now();
         auto millis = std::chrono::duration_cast<std::chrono::milliseconds>(now-start).count();
-        ROS_INFO("Spin start: %lu", millis);
+        //ROS_INFO("Spin start: %lu", millis);
 
+        target_x=5;
+        target_y=5;
+        moveToPt();
+        //Detect obstacle in front first
+
+        /*
         switch(state){
             case 0:
             navLogic();
@@ -139,7 +155,10 @@ int main(int argc, char **argv)
             orientToNormal();
             break;
 
-        }
+            case 9:
+            moveToPt();
+
+        }*/
 
         //Add a timer and conditional here for doLook
 
@@ -164,17 +183,18 @@ int main(int argc, char **argv)
         }
         */
 
+       
         now =  std::chrono::system_clock::now();
         millis = std::chrono::duration_cast<std::chrono::milliseconds>(now-start).count();
-        ROS_INFO("Spin end: %lu", millis);
+        //ROS_INFO("Spin end: %lu", millis);
 
         vel.angular.z = angular;
         vel.linear.x = linear;
         vel_pub.publish(vel);
         secondsElapsed = std::chrono::duration_cast<std::chrono::seconds>(std::chrono::system_clock::now()-start).count();
-        loop_rate.sleep(); //Why is this here?
+        loop_rate.sleep();
     }
-    delete laserVals;
+    //delete laserVals;
 
     return 0;
 }
@@ -199,10 +219,11 @@ void navLogic(){
         angular=0.0;
         state=0;
     }
+
     return;
 }
 
-
+/*
 bool decideDirection(){
     orientToNormal(); //Need to add this function in
     displaceYaw(90);
@@ -212,7 +233,7 @@ bool decideDirection(){
     if (minDist1>minDist2) displaceYaw(90);
     else displaceYaw(270);
     return false; //Return false for left, true for right
-}
+}*/
 
 void orientToNormal(){
     
@@ -276,3 +297,31 @@ void displaceYaw(int yawDispDeg){  //Deprecated, do not use
 
     return;
 } */
+
+void moveToPt(){
+    if (target_x==0.0 && target_y==0.0){
+        ROS_INFO("No target given");
+    }
+    float displace_x=target_x-posX;
+    float displace_y=target_y-posY;
+    float target_yaw=atan2(displace_y, displace_x);
+    ROS_INFO("Target_yaw: %f", target_yaw);
+    if (yaw>target_yaw + 0.01){
+        angular=-0.4;
+    } else if (yaw<target_yaw-0.01) {
+        angular=0.4;
+    } else {
+        angular=0.0;
+        
+        if ((posX>target_x+0.1 || posX<target_x-0.1) || (posY>target_y+0.1 || posY<target_y-0.1)){
+            linear=0.2;
+        } else {
+            linear=0.0;
+            angular=0.0;
+        }
+    }
+
+    
+
+    return;
+}
