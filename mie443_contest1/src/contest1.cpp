@@ -167,11 +167,12 @@ int main(int argc, char **argv)
         auto millis = std::chrono::duration_cast<std::chrono::milliseconds>(now-start).count();
 
         
-        switch(state){ 
+        switch(state){ //4 min for collision avoidance (random walk w/ memory), 4 min for corner travelling
             case 0:
             navLogic();
             for (int i=0; i<10; i++){
-                ranOnce[0]=false;
+                ranOnce[i]=false;
+                dynVar[i]=0;
             }
             stepNo=0;
             dynIdx=0;
@@ -184,6 +185,8 @@ int main(int argc, char **argv)
 
             case 9:
             //bumperFailsafe
+            ROS_INFO("Bumper pressed");
+            state = 0;
             break;
             default:
             navLogic();
