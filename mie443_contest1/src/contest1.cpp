@@ -106,6 +106,7 @@ float idxToAng(int idx);
 bool timeout(uint64_t limit, std::chrono::time_point<std::chrono::system_clock> startPt);
 float angularAdd(float *summand, float angAddend);
 void spinAround(); //Spin 180 degrees twice, or use a timer
+void followWall(); //The way our code is written, we should really use recursion
 
 bool firstRun=true; //Global variable for if you want something to run only once
 
