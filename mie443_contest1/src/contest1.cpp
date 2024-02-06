@@ -36,6 +36,7 @@ float laserVals[639]={0.0};
 float laserFirstDiff[638]={0.0};
 int minLaserIdx;
 float angle_increment;
+bool objectDetect[3]={0};
 
 uint8_t state = 0;
 
@@ -62,6 +63,9 @@ void laserCallback(const sensor_msgs::LaserScan::ConstPtr& msg)
     angle_increment = msg->angle_increment;
     desiredNLasers = desiredAngle*M_PI / (180*msg->angle_increment);
 
+    objectDetect[0]=false;
+    objectDetect[1]=false;
+    objectDetect[2]=false;
     //ROS_INFO("Size of laser scan array: %i and size of offset: %i", nLasers, desiredNLasers);
     int laserValIndex=0;
     if (desiredAngle * M_PI / 180 < msg->angle_max && -desiredAngle * M_PI / 180 > msg->angle_min) {
@@ -70,9 +74,20 @@ void laserCallback(const sensor_msgs::LaserScan::ConstPtr& msg)
                 minLaserDist = msg->ranges[laser_idx];
                 minLaserIdx=laser_idx;
             }
+            
             laserVals[laser_idx]=msg->ranges[laser_idx];
             if(laser_idx!=0){
                 laserFirstDiff[laser_idx]=laserVals[laser_idx]-laserVals[laser_idx-1];
+            }
+            if (laser_idx<219&& (laserVals[laser_idx]<0.7|| laserVals[laser_idx]==std::numeric_limits<float>::infinity())){
+                objectDetect[0]=true;
+                ROS_INFO("Object on right");
+            } else if (laser_idx>429 &&  (laserVals[laser_idx]<0.7|| laserVals[laser_idx]==std::numeric_limits<float>::infinity())){
+                objectDetect[2]=true;
+                ROS_INFO("Object on left");
+            } else if (laser_idx < 429 && laser_idx>219 && (laserVals[laser_idx]<0.7|| laserVals[laser_idx]==std::numeric_limits<float>::infinity())){
+                objectDetect[1]=true;
+                ROS_INFO("Object in front");
             }
             
             laserValIndex++;
@@ -155,6 +170,7 @@ int main(int argc, char **argv)
 
     float distParam=0.8;
     state=0;
+    int prevState=0;
 
     while(minLaserDist==std::numeric_limits<float>::infinity()){
         ros::spinOnce();
@@ -166,7 +182,10 @@ int main(int argc, char **argv)
         auto now =  std::chrono::system_clock::now();
         auto millis = std::chrono::duration_cast<std::chrono::milliseconds>(now-start).count();
 
-        
+        if (prevState!=state){
+            ROS_INFO("State: %d", state);
+        }
+
         switch(state){ //4 min for collision avoidance (random walk w/ memory), 4 min for corner travelling
             case 0:
             navLogic();
@@ -183,14 +202,23 @@ int main(int argc, char **argv)
             decideDirection();
             break;
 
+            case 2:
+            moveToPt();
+            break;
+
+
             case 9:
             //bumperFailsafe
             ROS_INFO("Bumper pressed");
             state = 0;
             break;
+
             default:
             navLogic();
         } 
+
+        linear=0.0;
+        angular=0.0;
 
         vel.angular.z = angular;
         vel.linear.x = linear;
@@ -204,18 +232,17 @@ int main(int argc, char **argv)
 }
 
 void navLogic(){
-    //navLogic decides which states to enter, reactive states are the first few if statements in order of priority, proactive later
-    //Last state is default, move in a straight line forward
-    //Need some way to remember last state
-    float distParam=0.5;
+    float distParam=0.6;
     ROS_INFO("MinLaserDist: %f", minLaserDist);
     if (minLaserDist<distParam || minLaserDist==std::numeric_limits<float>::infinity()){
         linear=0;
         state=1;
-    } else if (doLook){
+    } else if (target_x!=0.0 && target_y!=0.0){
         state=2;
     } else {
-        linear=0.4;
+        if (minLaserDist<1){
+            linear=0.2;
+        } else linear=0.4;
         angular=0.0;
         state = 0;
     }
@@ -249,7 +276,7 @@ void decideDirection(){
         laserMem[1] = laserVals[319];
     }
     else if (stepNo==3){
-        if (laserMem[0] > laserMem[1]) {
+        if (laserMem[0] > laserMem[1] && laserMem[0]!=std::numeric_limits<float>::infinity()) {
             if(!turn(M_PI,dynIdx) && dynIdx==2){
                 return;
             }
@@ -257,22 +284,31 @@ void decideDirection(){
             stepNo=0;
             return;
         } 
-        else{
+        else if (laserMem[1]!= std::numeric_limits<float>::infinity()) {
             state = 0;
             stepNo=0;
             return;
+        } else {
+            if (!turn(DEG2RAD(-45), dynIdx)){
+                return;
+            }
+            else{
+                state = 0;
+                stepNo=0;
+                return;
+            }
         }
     }
     return;
 }
 
+
+
 bool moveToPt(){
-    if (target_x==0.0 && target_y==0.0){
-        ROS_INFO("No target given");
-    }
     float displace_x=target_x-posX;
     float displace_y=target_y-posY;
     float target_yaw=atan2(displace_y, displace_x);
+    float distParam=0.6;
     ROS_INFO("Target_yaw: %f", target_yaw);
     if (yaw>target_yaw + 0.01){
         angular=-0.4;
@@ -281,6 +317,10 @@ bool moveToPt(){
     } else {
         angular=0.0;
         //I want to make this conditional more robust by checkign if displace is pos or negative, but cant figure it out for now
+        if (minLaserDist<distParam || minLaserDist==std::numeric_limits<float>::infinity()){
+            state=0;
+            return;
+        }
         if ((posX>target_x+0.1 || posX<target_x-0.1) || (posY>target_y+0.1 || posY<target_y-0.1)){ 
             linear=0.2;
         } else {
@@ -290,6 +330,20 @@ bool moveToPt(){
         }
     }
     return false;
+}
+
+void wallFollow() {
+    //no break out condition right now, thinking of adding in a time limit break out
+    if (laserVals[laserIdxEnd]<1) {
+        linear = 0.25;
+        angular = 0.0;
+    }
+    else {
+        angular = 0.1;
+        linear = 0.0;
+    } state = 0;
+    dynVar[0]=false;
+    return;
 }
 
 bool turn(float turnAmt, int ranIdx){ //CCW is +ve, turnAmt is between -pi to pi
@@ -342,26 +396,7 @@ bool orientToNormal(){
 }
 
 
-void wallFollow() {
-    //no break out condition right now, thinking of adding in a time limit break out
-    orientToNormal();
-    if (!turn(DEG2RAD(90),0)){
-        
-        return; //Breaks logic prematurely if turn is not completed
-    } 
-    
-    ROS_INFO("Starting follow...");
-    if (laserVals[laserIdxEnd]<1) {
-        linear = 0.25;
-        angular = 0.0;
-    }
-    else {
-        angular = 0.1;
-        linear = 0.0;
-    } state = 0;
-    dynVar[0]=false;
-    return;
-}
+
 
 void avoid() {
     if (minLaserIdx > 319) {
@@ -392,7 +427,7 @@ bool timeout(uint64_t limit, std::chrono::time_point<std::chrono::system_clock> 
 }
 
 float idxToAng(int idx){ //Takes the laser index and returns the angle. Can be negative
-    idx=idx-nLasers;
+    idx=idx-319;
     return idx*angle_increment;
 }
 
