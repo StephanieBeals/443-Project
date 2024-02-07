@@ -81,13 +81,13 @@ void laserCallback(const sensor_msgs::LaserScan::ConstPtr& msg)
             }
             if (laser_idx<219&& (laserVals[laser_idx]<0.7|| laserVals[laser_idx]==std::numeric_limits<float>::infinity())){
                 objectDetect[0]=true;
-                ROS_INFO("Object on right");
+                //ROS_INFO("Object on right");
             } else if (laser_idx>429 &&  (laserVals[laser_idx]<0.7|| laserVals[laser_idx]==std::numeric_limits<float>::infinity())){
                 objectDetect[2]=true;
-                ROS_INFO("Object on left");
+                //ROS_INFO("Object on left");
             } else if (laser_idx < 429 && laser_idx>219 && (laserVals[laser_idx]<0.7|| laserVals[laser_idx]==std::numeric_limits<float>::infinity())){
                 objectDetect[1]=true;
-                ROS_INFO("Object in front");
+                //ROS_INFO("Object in front");
             }
             
             laserValIndex++;
@@ -143,7 +143,12 @@ float dynVar[10]={0}; //Global variables for storing things, store anything you 
 uint8_t dynIdx=0; //Need to start indexing this until you return to navLogic, ie if you have multiple turns in a single function
 uint8_t stepNo=0;
 
-float laserMem[2]={0.0};
+float laserMem[7]={0.0};
+float posXMem[100] = {0.0};
+float posYMem[100] = {0.0};
+int memIdx = 0;
+
+int prevState=0; //This needs to get updated
 
 bool doLook=false;
 
@@ -170,22 +175,30 @@ int main(int argc, char **argv)
 
     float distParam=0.8;
     state=0;
-    int prevState=0;
+    
 
     while(minLaserDist==std::numeric_limits<float>::infinity()){
         ros::spinOnce();
         loop_rate.sleep();
     }
+    
 
     while(ros::ok() && secondsElapsed <= 480) {
         ros::spinOnce();
         auto now =  std::chrono::system_clock::now();
         auto millis = std::chrono::duration_cast<std::chrono::milliseconds>(now-start).count();
 
+        
         if (prevState!=state){
             ROS_INFO("State: %d", state);
+            if (state==0){
+                posXMem[memIdx]=posX;
+                posYMem[memIdx]=posY;
+                memIdx++;
+            }
         }
-
+        //Implement a 30s timout here just in case
+        
         switch(state){ //4 min for collision avoidance (random walk w/ memory), 4 min for corner travelling
             case 0:
             navLogic();
@@ -195,6 +208,7 @@ int main(int argc, char **argv)
             }
             stepNo=0;
             dynIdx=0;
+            state=4;
             break;
 
             case 1:
@@ -204,6 +218,14 @@ int main(int argc, char **argv)
 
             case 2:
             moveToPt();
+            break;
+
+            case 3:
+            wallFollow();
+            break;
+
+            case 4:
+            spinAround();
             break;
 
 
@@ -216,9 +238,9 @@ int main(int argc, char **argv)
             default:
             navLogic();
         } 
+        prevState=state;
 
         linear=0.0;
-        angular=0.0;
 
         vel.angular.z = angular;
         vel.linear.x = linear;
@@ -234,12 +256,23 @@ int main(int argc, char **argv)
 void navLogic(){
     float distParam=0.6;
     ROS_INFO("MinLaserDist: %f", minLaserDist);
+    bool alreadyBeenHere=false;
+    if (prevState!=0 && prevState!=4){
+        for(int i=0; i<=memIdx; i++){
+            if (posXMem[memIdx]-0.2<posX && posX<posXMem[memIdx]+0.2 && posYMem[memIdx]-0.2<posY && posY<posYMem[memIdx]+0.2){
+                alreadyBeenHere=true;
+            }
+        }
+    }
     if (minLaserDist<distParam || minLaserDist==std::numeric_limits<float>::infinity()){
         linear=0;
         state=1;
     } else if (target_x!=0.0 && target_y!=0.0){
         state=2;
-    } else {
+    } else if (alreadyBeenHere){
+        state=4;
+    }
+    else {
         if (minLaserDist<1){
             linear=0.2;
         } else linear=0.4;
@@ -302,8 +335,6 @@ void decideDirection(){
     return;
 }
 
-
-
 bool moveToPt(){
     float displace_x=target_x-posX;
     float displace_y=target_y-posY;
@@ -319,13 +350,14 @@ bool moveToPt(){
         //I want to make this conditional more robust by checkign if displace is pos or negative, but cant figure it out for now
         if (minLaserDist<distParam || minLaserDist==std::numeric_limits<float>::infinity()){
             state=0;
-            return;
+            return true;
         }
         if ((posX>target_x+0.1 || posX<target_x-0.1) || (posY>target_y+0.1 || posY<target_y-0.1)){ 
             linear=0.2;
         } else {
             linear=0.0;
             angular=0.0;
+            state = 0;
             return true;
         }
     }
@@ -346,6 +378,35 @@ void wallFollow() {
     return;
 }
 
+void spinAround(){//Change to averages
+    volatile int minIndex=0;
+    //ROS_INFO("Step: %d", stepNo);
+    if(stepNo<8 && !turn(DEG2RAD(-45),stepNo)){
+        return;
+    } else if (stepNo<8){
+        laserMem[stepNo]=minLaserDist;
+        ROS_INFO("Mem: %d, %f", stepNo, laserMem[stepNo]);
+        stepNo++;
+    }
+    
+    if (stepNo==8){
+        for (int i=1; i<8; i++){
+            if(laserMem[minIndex]<laserMem[i]){
+                minIndex=i;
+            }
+            ROS_INFO("maxIndex: %d", minIndex);
+        }
+        if(!turn(DEG2RAD(-45*(minIndex+1)),9) && minIndex!=7){
+            ROS_INFO("Ang diff: %d", -45*(minIndex+1));
+            return;
+        } else {
+            state=0;
+            return;
+        }
+    }
+    return;
+}
+
 bool turn(float turnAmt, int ranIdx){ //CCW is +ve, turnAmt is between -pi to pi
     if (!ranOnce[ranIdx]){
         //ROS_INFO("Init dynVar");
@@ -355,7 +416,7 @@ bool turn(float turnAmt, int ranIdx){ //CCW is +ve, turnAmt is between -pi to pi
     float goal=dynVar[ranIdx];
     angularAdd(&goal, turnAmt);
     if (yaw > goal+0.08 || yaw < goal-0.08) { //Generall the leniency should be angular*2/10
-        ROS_INFO("yaw: %f, goal, %f", yaw, goal);
+        //ROS_INFO("yaw: %f, goal, %f", yaw, goal);
         if (turnAmt<0){
             angular=-0.4;
         } else {
@@ -394,9 +455,6 @@ bool orientToNormal(){
 
     return true;
 }
-
-
-
 
 void avoid() {
     if (minLaserIdx > 319) {
