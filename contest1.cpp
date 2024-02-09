@@ -1,6 +1,13 @@
+// new headers
+#include <typeinfo>
+#include <iostream>
+#include <utility> // for std::pair
+#include <iomanip>
+
 // cornerRecognition -> detect corner and relative valley direction
-std::pair<bool, bool> cornerRecognition(const sensor_msgs::LaserScan::ConstPtr& msg) {
+std::tuple<bool, bool, int> cornerRecognition(const sensor_msgs::LaserScan::ConstPtr& msg) {
     bool corner_detected, valley_on_left;
+    int corner_laser_index;
 
     std::vector<float> avg_laser; //average reading over every 4 readings
     std::vector<float> laser; //laser readings
@@ -11,7 +18,7 @@ std::pair<bool, bool> cornerRecognition(const sensor_msgs::LaserScan::ConstPtr& 
         float reading = msg->ranges[i];
         laser.push_back(reading);
     }
-    
+
     //sanity checking for laser readings 
     for (size_t i = 0; i < laser.size(); ++i){
         //#std::cout << "index" << i << std::endl;
@@ -66,6 +73,7 @@ std::pair<bool, bool> cornerRecognition(const sensor_msgs::LaserScan::ConstPtr& 
                     false_alarm_counter = 0;
                     if (j == k+15){
                         corner_detected = true;
+                        corner_laser_index = i;
 
                         // check the sign of average first difference to determine the relative position of valley //
                         float sum = 0;
@@ -95,7 +103,6 @@ std::pair<bool, bool> cornerRecognition(const sensor_msgs::LaserScan::ConstPtr& 
                     if (false_alarm_counter >= 4){
                         std::cout << "FALSE ALARM!" << std::endl;
                         corner_detected = false;
-                        std::cout << "FUCK" << std::endl;
                         break; 
                     }
                 }
@@ -105,7 +112,7 @@ std::pair<bool, bool> cornerRecognition(const sensor_msgs::LaserScan::ConstPtr& 
     if (corner_detected != true){
         //std::cout << "No Corner." << std::endl;
     } 
-    return std::make_pair(corner_detected, valley_on_left);
+    return std::make_tuple(corner_detected, valley_on_left, corner_laser_index);
 }
 
 void laserCallback(const sensor_msgs::LaserScan::ConstPtr& msg)
@@ -114,14 +121,18 @@ void laserCallback(const sensor_msgs::LaserScan::ConstPtr& msg)
     nLasers = (msg->angle_max - msg->angle_min) / msg->angle_increment;
     desiredNLasers = desiredAngle*M_PI / (180*msg->angle_increment);
     ////// 
-    std::pair<bool, bool> result = cornerRecognition(msg);
-    // result.first -> (bool) corner detected?
-    // result.second -> (bool) valley on the left?
-    if (result.first){
-        if (result.second){
+    auto result = cornerRecognition(msg);
+    bool result1 = std::get<0>(result); // (bool) corner detected?
+    bool result2 = std::get<1>(result); // (bool) valley on the left?
+    int result3 = std::get<2>(result); // (int) corner_laser_index
+
+    if (result1){
+        if (result2){
             std::cout << "yes corner: left valley detected" << std::endl;
+            std::cout << "corner laser index: " << result3 << std::endl;
         } else {
             std::cout << "yes corner: right valley detected" << std::endl;
+            std::cout << "corner laser index: " << result3 << std::endl;
         }
     } else {
         std::cout << "no corner" << std::endl;
