@@ -20,16 +20,20 @@
 
 using Clock = std::chrono::system_clock;
 
+//defining global variables for odom, laser, and bumper callbacks
 float angular = 0.0;
 float linear = 0.0;
 float posX=0.0, posY=0.0, yaw=0.0;
 uint8_t bumper[3]={kobuki_msgs::BumperEvent::RELEASED, kobuki_msgs::BumperEvent::RELEASED, kobuki_msgs::BumperEvent::RELEASED};
 
 float minLaserDist=std::numeric_limits<float>::infinity();
-int32_t nLasers=0, desiredNLasers=0, desiredAngle=15;
+int32_t nLasers=0, desiredNLasers=0, desiredAngle=20;
 
-float target_x = 0;
-float target_y = 0;
+//float target_x = 0;
+//float target_y = 0;
+
+//global variable to start the algorithm with a 360 spin
+float spinCount = 0;
 
 //Used in laser callback
 float laserVals[639]={0.0};
@@ -38,32 +42,52 @@ int minLaserIdx;
 float angle_increment;
 bool objectDetect[3]={0};
 
+//states defined in main function used to control robot navigation logic
 uint8_t state = 0;
 
 bool bumperPressed=false;
 
-void bumperCallback(const kobuki_msgs::BumperEvent::ConstPtr& msg)
-{
-	//fill with your code
+void bumperCallback(const kobuki_msgs::BumperEvent::ConstPtr& msg){
     bumper[msg->bumper]=msg->state;
-    //Add condition for bumperPressed here
-    for (int i=0; i<3; i++){
+    
+    //if a bumper is pressed the robot enters a corresponding state and function to react
+    if (bumper[0]==kobuki_msgs::BumperEvent::PRESSED) {
+        state = 6;
+        ROS_INFO("Left Bumper Pressed");
+        bumperPressed=true;
+    } else if (bumper[1]==kobuki_msgs::BumperEvent::PRESSED) {
+        state = 7;
+        ROS_INFO("Middle Bumper Pressed");
+        bumperPressed=true;
+    } else if (bumper[2]==kobuki_msgs::BumperEvent::PRESSED) {
+        state = 8;
+        ROS_INFO("Right Bumper Pressed");
+        bumperPressed=true;
+    } else {
+        bumperPressed=false;
+    }
+    
+    //DELETE
+    /*for (int i=0; i<3; i++){
         if (bumper[i]==kobuki_msgs::BumperEvent::PRESSED){
             state=9;
             bumperPressed=true;
         }
-    }
+        else (bumperPressed=false);
+    }*/
 }
 //Go to https://docs.ros.org/en/api/sensor_msgs/html/msg/LaserScan.html
 //First entry is on robot right (-ve Y), going CCW around robot
 
-void laserCallback(const sensor_msgs::LaserScan::ConstPtr& msg) 
-{
+void laserCallback(const sensor_msgs::LaserScan::ConstPtr& msg) {
+    //laser callback stores laser scan readings into an array to use values in code
+
 	minLaserDist = std::numeric_limits<float>::infinity();
     nLasers = (msg->angle_max - msg->angle_min) / msg->angle_increment;
     angle_increment = msg->angle_increment;
     desiredNLasers = desiredAngle*M_PI / (180*msg->angle_increment);
 
+    //laser range is split into 3 to determine if an object is on the left, right, or center
     objectDetect[0]=false;
     objectDetect[1]=false;
     objectDetect[2]=false;
@@ -81,18 +105,20 @@ void laserCallback(const sensor_msgs::LaserScan::ConstPtr& msg)
             if(laser_idx!=0){
                 laserFirstDiff[laser_idx]=laserVals[laser_idx]-laserVals[laser_idx-1];
             }
-            if (laser_idx<219&& (laserVals[laser_idx]<0.7|| laserVals[laser_idx]==std::numeric_limits<float>::infinity())){
+            if (laser_idx<294 && (laserVals[laser_idx]<0.7|| laserVals[laser_idx]==std::numeric_limits<float>::infinity())){
                 objectDetect[0]=true;
-                //ROS_INFO("Object on right");
-            } else if (laser_idx>429 &&  (laserVals[laser_idx]<0.7|| laserVals[laser_idx]==std::numeric_limits<float>::infinity())){
-                objectDetect[2]=true;
                 //ROS_INFO("Object on left");
-            } else if (laser_idx < 429 && laser_idx>219 && (laserVals[laser_idx]<0.7|| laserVals[laser_idx]==std::numeric_limits<float>::infinity())){
+            } else if (laser_idx>344 &&  (laserVals[laser_idx]<0.7|| laserVals[laser_idx]==std::numeric_limits<float>::infinity())){
+                objectDetect[2]=true;
+                //ROS_INFO("Object on right");
+            } else if (laser_idx < 344 && laser_idx>294 && (laserVals[laser_idx]<0.7|| laserVals[laser_idx]==std::numeric_limits<float>::infinity())){
                 objectDetect[1]=true;
                 //ROS_INFO("Object in front");
             }
             
             laserValIndex++;
+            
+            //DELETE
             //if(laserValIndex>300) ROS_INFO("%d", laserValIndex);
         }
     }
@@ -125,20 +151,22 @@ void odomCallback(const nav_msgs::Odometry::ConstPtr& msg){
     //ROS_INFO("Position: (%f, %f) Orientation: %f rad or %f deg", posX, posY, yaw, RAD2DEG(yaw));
 }
 
-void navLogic();
-void bumperFailsafe();
-bool orientToNormal();
-//Should make the below two more dynamic into just one function, bool turn(float angle)
-bool turn(float turnAmt, int ranIdx);
-bool moveToPt();
-void decideDirection(); //decides if 90 degree left or right has most free path
-void wallFollow(); //once at an obstacle turns 90 degrees left and wall follows
-void avoid(); //turns left or right to avoid obstacle
-float idxToAng(int idx);
-bool timeout(uint64_t limit, std::chrono::time_point<std::chrono::system_clock> startPt);
-void angularAdd(float *summand, float angAddend);
-void spinAround(); //Spin 180 degrees twice, or use a timer
-bool forward(float dist, int ranIdx);
+void navLogic(); //overall default navigation and conditions to switch states
+//void bumperFailSafe(); //DELETE
+//bool orientToNormal(); //DELETE
+bool turn(float turnAmt, int ranIdx); //takes in an angle amount and turns the robot
+//bool moveToPt(); //DELETE
+//void decideDirection(); //decides if 90 degree left or right has most free path: DELETE
+//void wallFollow(); //once at an obstacle turns 90 degrees left and wall follows: DELETE
+void avoid(); //turns left, right, or spins to avoid obstacles
+float idxToAng(int idx); //calculates laser scan angle associated with the array indices
+bool timeout(uint64_t limit, std::chrono::time_point<std::chrono::system_clock> startPt); //starts a timer to ensure robot does not get stuck in a function
+void angularAdd(float *summand, float angAddend); 
+void spinAround(); //spin 360 and face direction of most space
+bool forward(float dist, int ranIdx); //moves robot forward
+void rightBumper(); //turns left if right bumper pressed
+void centerBumper(); //turns around and faces direction of most space if center bumper pressed
+void leftBumper(); //turns right if left bumper pressed
 
 
 bool ranOnce[10]={0}; //Global variable for if you want something to run only once.
@@ -171,8 +199,8 @@ int main(int argc, char **argv)
     start = std::chrono::system_clock::now();
     uint64_t secondsElapsed = 0;
     
-
-    float distParam=0.8;
+    //DELETE
+    //float distParam=0.8;
     state=0;
 
     while(minLaserDist==std::numeric_limits<float>::infinity()){
@@ -180,7 +208,6 @@ int main(int argc, char **argv)
         loop_rate.sleep();
     }
 
-    
 
     while(ros::ok() && secondsElapsed <= 480) {
         ros::spinOnce();
@@ -190,11 +217,13 @@ int main(int argc, char **argv)
         if (prevState!=state){
             ROS_INFO("State: %d", state);
             if (state==0){
+                //DELETE
                 //posXMem[memIdx]=posX;
                 //posYMem[memIdx]=posY;
                 //memIdx++;
             }
         }  
+        //assigning states to each function
         prevState=state;
         switch(state){ //4 min for collision avoidance (random walk w/ memory), 4 min for corner travelling
             case 0:
@@ -211,7 +240,7 @@ int main(int argc, char **argv)
             break;
 
             case 1:
-            ROS_INFO("StepNo: %d", stepNo);
+            //ROS_INFO("StepNo: %d", stepNo);
             avoid();
             break;
 
@@ -219,11 +248,25 @@ int main(int argc, char **argv)
             spinAround();
             break;
 
-            case 9:
-            //bumperFailsafe
-            ROS_INFO("Bumper pressed");
-            state = 0;
+            case 6:
+            leftBumper();
             break;
+
+            case 7:
+            centerBumper();
+            break;
+
+            case 8:
+            rightBumper();
+            break;
+
+            //DELETE
+            /*case 9:
+            bumperFailSafe();
+            ROS_INFO("Bumper pressed");
+            //state = 0;
+            break;*/
+            
             default:
             navLogic();
         } 
@@ -244,22 +287,35 @@ void navLogic(){
     //navLogic decides which states to enter, reactive states are the first few if statements in order of priority, proactive later
     //Last state is default, move in a straight line forward
     //Need some way to remember last state
-    float distParam=0.5;
+    float distParam=0.7;
+    float farDistParam=1.0;
     //ROS_INFO("MinLaserDist: %f", minLaserDist);
-    if (minLaserDist<distParam || minLaserDist==std::numeric_limits<float>::infinity()){
+
+    //before doing anything else do a 360 scan to face most space
+    if (spinCount==0) {
+        state =4;
+        spinCount=1;
+    } else if (minLaserDist<distParam || minLaserDist==std::numeric_limits<float>::infinity()){
         linear=0;
         state=1;
+    } else if (objectDetect[1]==true){
+        linear=0.10;
+        angular=0.0;
+        state = 0;
+    } else if (minLaserDist<farDistParam && minLaserDist>distParam) {
+        linear = 0.15;
+        angular = 0;
     } else {
         linear=0.25;
         angular=0.0;
-        state = 0;
+        state=0;
     }
 
     return;
 }
 
-
-void decideDirection(){
+//DELETE function but save for contest 2
+/*void decideDirection(){
     if (stepNo==0){
         if(!orientToNormal()){
             ROS_INFO("Orienting...");
@@ -299,9 +355,10 @@ void decideDirection(){
         }
     }
     return;
-}
+}*/
 
-bool moveToPt(){
+//DELETE but save for contest 2
+/*bool moveToPt(){
     if (target_x==0.0 && target_y==0.0){
         ROS_INFO("No target given");
     }
@@ -325,9 +382,10 @@ bool moveToPt(){
         }
     }
     return false;
-}
+}*/
 
 bool turn(float turnAmt, int ranIdx){ //CCW is +ve, turnAmt is between -pi to pi
+//the turn function takes in an angle and spins the robot that angle
     if (!ranOnce[ranIdx]){
         //ROS_INFO("Init dynVar");
         ranOnce[ranIdx]=true; //You have to remember in the CALLER to reset the corresponding ranOnce
@@ -349,6 +407,7 @@ bool turn(float turnAmt, int ranIdx){ //CCW is +ve, turnAmt is between -pi to pi
 }
 
 bool forward(float dist, int ranIdx){
+    //the forward function moves the robot forward
     if (!ranOnce[ranIdx]){
         ranOnce[ranIdx]=true;
         dynVar[ranIdx]=laserVals[319];
@@ -361,7 +420,8 @@ bool forward(float dist, int ranIdx){
     }return true;
 }
 
-bool orientToNormal(){
+//DELETE save for contest 2
+/*bool orientToNormal(){
     //ROS_INFO("minLaserIdx: %d", minLaserIdx);
     //ROS_INFO("Bow dist: %f", laserVals[319]);
     linear=0.0;
@@ -374,10 +434,10 @@ bool orientToNormal(){
     } 
 
     return true;
-}
+}*/
 
-
-void wallFollow() {
+//DELETE do not use
+/*void wallFollow() {
     //no break out condition right now, thinking of adding in a time limit break out
     orientToNormal();
     if (!turn(DEG2RAD(90),0)){
@@ -397,15 +457,22 @@ void wallFollow() {
     } state = 0;
     dynVar[0]=false;
     return;
-}
+}*/
 
-void spinAround(){//Change to averages
+void spinAround(){
+    //the spinAround function spins the robot 360 degrees and uses the laser scan to orient itself to the index with the most space
+    //returns to state 0 when done to move forward
+    
     volatile int minIndex=0;
     //ROS_INFO("Step: %d", stepNo);
     if(stepNo<8 && !turn(DEG2RAD(-45),stepNo)){
         return;
     } else if (stepNo<8){
-        laserMem[stepNo]=minLaserDist;
+        laserMem[stepNo] = laserVals[319];
+        
+        //DELETE
+        //laserMem[stepNo]=minLaserDist;
+
         if(minLaserDist == std::numeric_limits<float>::infinity()){
             laserMem[stepNo]=0;
         }
@@ -433,34 +500,25 @@ void spinAround(){//Change to averages
 }
 
 void avoid (){
+    //the avoid function turns left if an object is sensed on the right, turns right if an object is on the left, moves forward if in a corridor,
+    //and calls the spinAround function if there's objects to the left right and center
+    //returns state 0 to move forward
+ 
     if (objectDetect[0] == true && objectDetect[2] ==false){
-        angular = 0.1;
-        linear = 0.0;
+        angular = 0.4;
+        linear = 0.1;
     } else if((objectDetect[2] == true) && objectDetect[0] == false) { 
-        angular = -0.1;
-        linear = 0.0;
-    }else if (objectDetect[0] == true && objectDetect[1] == true && objectDetect[2] == true) {
+        angular = -0.4;
+        linear = 0.1;
+    } else if (objectDetect[0]==true && objectDetect[2]==true && objectDetect[1]==false){
+        linear=0.25;
+        angular=0.0;
+    } else if (objectDetect[0] == true && objectDetect[1] == true && objectDetect[2] == true) {
         state =4;
-    }else {
+    } else {
         state =0;
     }
 }
-
-    
-
-
-/*void avoid() {
-    if (minLaserIdx > 319) {
-            angular = -0.1;
-            linear = 0.0;
-    } 
-    else if (minLaserIdx <= 319) {
-        angular = 0.1;
-        linear = 0.0;
-    }
-        state = 0;
-}*/
-
 
 bool timeout(uint64_t limit, std::chrono::time_point<std::chrono::system_clock> startPt){ //Non-blocking timer
     //Create a time point at when your timer starts and pass it in to this function (see 'now' or 'start' for examples)
@@ -485,4 +543,84 @@ void angularAdd(float *summand, float angAddend){
         *summand=*summand+2*M_PI;
     }
     return;
+}
+
+//DELETE not used split up into 3 states instead
+/*void bumperFailSafe() {
+    //if() {
+        //linear =-0.4;
+        //angular =0;
+    if(!turn(DEG2RAD(180),1)){
+        return;
+    } else {
+        state=0;
+        return;
+    }
+}*/
+
+void rightBumper() {
+    //the rightBumper function turns the robot left by 30 degrees if the right bumper is hit
+    //returns state 0 to move forward
+    if(!turn(DEG2RAD(30),1)){
+        return;
+    } else {
+        state=0;
+        return;
+    }
+}
+
+void leftBumper() {
+    //the leftBumper function turns the robot right by 30 degrees if the left bumper is hit
+    //returns 0 to move forward
+    if(!turn(DEG2RAD(-30),1)){
+        return;
+    } else {
+        state=0;
+        return;
+    }
+}
+
+void centerBumper() {
+    //the centerBumper function spins the robot and scans the 180 degrees behind the direction of the obstacle and faces the 
+    //direction withmost space
+    //returns state 0 to move forward
+
+    volatile int minIndex=1;
+    //ROS_INFO("Step: %d", stepNo);
+
+    if(stepNo==0 && !turn(DEG2RAD(-30),stepNo)){
+        return;
+    } else if (stepNo==0){
+        ROS_INFO("Finished 45 degree turn");
+        stepNo++;
+    }
+
+    if (stepNo>0 && stepNo<5 && !turn(DEG2RAD(-60),stepNo)) {
+        return;
+    } else if (stepNo>0 && stepNo<5){
+        laserMem[stepNo] = laserVals[319];
+
+        if(minLaserDist == std::numeric_limits<float>::infinity()){
+            laserMem[stepNo]=0;
+        }
+        ROS_INFO("Mem: %d, %f", stepNo, laserMem[stepNo]);
+        stepNo++;
+    }
+
+    if (stepNo==5){
+        for (int i=2; i<5; i++){
+            if(laserMem[minIndex]<laserMem[i]){
+                ROS_INFO("current max: %f, compared: %f", laserMem[minIndex], laserMem[i]);
+                minIndex=i;
+            }
+        }ROS_INFO("max index: %d", minIndex);
+        if(!turn(DEG2RAD(60*(4-minIndex)),6) && minIndex!=5){
+            return;
+        } else {
+            state=0;
+            return;
+        }
+    }
+    return;
+
 }
