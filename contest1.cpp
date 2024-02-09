@@ -1,55 +1,132 @@
-bool isCorner(const sensor_msgs::LaserScan::ConstPtr& msg){
-    std::vector<float> differences; //first difference array 
+// cornerRecognition -> detect corner and relative valley direction
+std::pair<bool, bool> cornerRecognition(const sensor_msgs::LaserScan::ConstPtr& msg) {
+    bool corner_detected, valley_on_left;
 
-    for (size_t i = 1; i < msg->ranges.size(); ++i){
-        float diff = std::abs(msg->ranges[i] - msg->ranges[i-1]);
-        //ROS_INFO("msg->ranges[i]: %i", msg->ranges[i]);
-        //ROS_INFO("msg->ranges[i-1]: %i", msg->ranges[i-1]);
-        //ROS_INFO("difference: %i", diff);
-        differences.push_back(diff);
+    std::vector<float> avg_laser; //average reading over every 4 readings
+    std::vector<float> laser; //laser readings
+    std::vector<float> first_diff; //first difference on avg_laser
+    std::vector<float> first_diff_interval; //first difference interval check when suspecting a corner
+    
+    for (size_t i = 0; i < msg->ranges.size(); ++i){
+        float reading = msg->ranges[i];
+        laser.push_back(reading);
     }
     
-    int consecutive_count = 0;
-    size_t corner_index = 0;
-    float threshold = 0.005;
-    int consecutive_threshold = 400;
-
-    for (size_t i = 1; i < differences.size(); ++i){
-        //ROS_INFO("difference: %i", differences[i]);
+    //sanity checking for laser readings 
+    for (size_t i = 0; i < laser.size(); ++i){
+        //#std::cout << "index" << i << std::endl;
+        //#ROS_INFO("laser: %f", laser[i]);
+        //std::cout << "Type is:" << typeid(avg_laser[i]).name() << std::endl;
+        //bool check = std::isnan(laser[i]); 
+        //std::cout << check << std::endl;
+        
+        if (i == 400){
+            break;
+        }
+        
     }
 
-    for (size_t i = 1; i < differences.size(); ++i){
-        if (differences[i] < threshold){
-            consecutive_count++;
-            if (consecutive_count == 1) {
-                corner_index = i;
-            } 
-            if (consecutive_count >= consecutive_threshold){
-                return true;
+    corner_detected = false;
+
+    for (size_t i = 0; i < laser.size(); ++i){
+        if (corner_detected){
+            //std::cout << "Corner Detected." << std::endl;
+            break;
+        } 
+        bool laser_nan = std::isnan(laser[i]);
+        if (laser_nan){
+            continue;
+        }
+        float diff = std::abs(laser[i] - laser[i+1]);
+        bool diff_nan = std::isnan(diff);
+        int k = i;
+
+        //skipping nan values for checking ahead from reading i
+        while (diff_nan){
+            k++;
+            diff = std::abs(laser[i] - laser[k]);
+            diff_nan = std::isnan(diff);
+        }
+        if (diff >= 0.5 && i <= 623 && k <= 623){ // laser array size is 649
+            int false_alarm_counter = 0;
+            first_diff_interval.clear();
+            
+            for (size_t j = i; j < k+16; ++j){
+                float signed_diff_extended = laser[i] - laser[j];
+                float diff_extended = std::abs(signed_diff_extended);
+                bool diff_extended_nan = std::isnan(diff_extended);
+                if (diff_extended_nan){
+                    continue;
+                }
+                else if (diff_extended >= 0.5){
+                    //std::cout << "large difference detected #" << j << std::endl;
+                    first_diff_interval.push_back(signed_diff_extended);
+                    //std::cout << "first_diff_interval_size:" << first_diff_interval.size() << std::endl;
+                    //std::cout << "signed_diff_extended:" << signed_diff_extended << std::endl;
+                    false_alarm_counter = 0;
+                    if (j == k+15){
+                        corner_detected = true;
+
+                        // check the sign of average first difference to determine the relative position of valley //
+                        float sum = 0;
+                
+                        for (size_t a = 0; a < first_diff_interval.size(); ++a){
+                            //signed_diff_extended : first_diff_interval
+                            sum += first_diff_interval[a];
+                        }
+                        float average = sum / first_diff_interval.size();
+
+                        //std::cout << "average is:" << average << std::endl;
+                        if (average <= 0){
+                            valley_on_left = true;
+                            std::cout << "valley on the left" << std::endl;
+                        } else {
+                            valley_on_left = false;
+                            std::cout << "valley on the right" << std::endl;
+                        }
+                        break;
+                    } else {
+                        continue;
+                    }
+                } 
+                else{
+                    false_alarm_counter++;
+                    //std::cout << "false alarm:" << false_alarm_counter << std::endl;
+                    if (false_alarm_counter >= 4){
+                        std::cout << "FALSE ALARM!" << std::endl;
+                        corner_detected = false;
+                        std::cout << "FUCK" << std::endl;
+                        break; 
+                    }
                 }
             }
-            else{
-                consecutive_count = 0;
-            }
         }
-    return false;
     }
+    if (corner_detected != true){
+        //std::cout << "No Corner." << std::endl;
+    } 
+    return std::make_pair(corner_detected, valley_on_left);
+}
 
 void laserCallback(const sensor_msgs::LaserScan::ConstPtr& msg)
 {
 	minLaserDist = std::numeric_limits<float>::infinity();
     nLasers = (msg->angle_max - msg->angle_min) / msg->angle_increment;
     desiredNLasers = desiredAngle*M_PI / (180*msg->angle_increment);
-    //ROS_INFO("Size of laser scan array: %i and size of offset: %i", nLasers, desiredNLasers);
-
-    bool cornerDetected = isCorner(msg);
-
-    if (cornerDetected) {
-        ROS_INFO("CORNER!");
+    ////// 
+    std::pair<bool, bool> result = cornerRecognition(msg);
+    // result.first -> (bool) corner detected?
+    // result.second -> (bool) valley on the left?
+    if (result.first){
+        if (result.second){
+            std::cout << "yes corner: left valley detected" << std::endl;
+        } else {
+            std::cout << "yes corner: right valley detected" << std::endl;
+        }
+    } else {
+        std::cout << "no corner" << std::endl;
     }
-    else {
-        ROS_INFO("no corner");
-    }
+    //////
 
     if (desiredAngle * M_PI / 180 < msg->angle_max && -desiredAngle * M_PI / 180 > msg->angle_min) {
         for (uint32_t laser_idx = nLasers / 2 - desiredNLasers; laser_idx < nLasers / 2 + desiredNLasers; ++laser_idx){
