@@ -385,6 +385,9 @@ void spinAround(){//Change to averages
         return;
     } else if (stepNo<8){
         laserMem[stepNo]=minLaserDist;
+        if(minLaserDist==std::numeric_limits<float>::infinity()){
+            laserMem[stepNo]=0;
+        }
         ROS_INFO("Mem: %d, %f", stepNo, laserMem[stepNo]);
         stepNo++;
     }
