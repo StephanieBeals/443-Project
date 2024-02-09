@@ -46,6 +46,7 @@ bool objectDetect[3]={0};
 uint8_t state = 0;
 
 bool bumperPressed=false;
+bool interrupt_state=false;
 
 void bumperCallback(const kobuki_msgs::BumperEvent::ConstPtr& msg){
     bumper[msg->bumper]=msg->state;
@@ -253,6 +254,16 @@ int main(int argc, char **argv)
             break;
 
             case 7:
+	    if(!interrupt_state){
+		    for (int i=0; i<10; i++){
+	                ranOnce[i]=false;
+	                dynVar[i]=0;
+	            }
+	            for (int i=0; i<8; i++){
+	                laserMem[i]=0;
+            	    }
+		    interrupt_state=true;
+	    }
             centerBumper();
             break;
 
@@ -618,6 +629,7 @@ void centerBumper() {
             return;
         } else {
             state=0;
+	    interrupt_state=false;
             return;
         }
     }
