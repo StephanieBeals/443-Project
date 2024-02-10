@@ -8,6 +8,7 @@
 
 #include <stdio.h>
 #include <cmath>
+#include <stdlib.h>
 
 #include <chrono>
 #include <thread>
@@ -46,7 +47,6 @@ bool objectDetect[3]={0};
 uint8_t state = 0;
 
 bool bumperPressed=false;
-bool interrupt_state=false;
 
 void bumperCallback(const kobuki_msgs::BumperEvent::ConstPtr& msg){
     bumper[msg->bumper]=msg->state;
@@ -215,6 +215,8 @@ int main(int argc, char **argv)
         auto now =  std::chrono::system_clock::now();
         auto millis = std::chrono::duration_cast<std::chrono::milliseconds>(now-start).count();
 
+        srand(secondsElapsed);
+
         if (prevState!=state){
             ROS_INFO("State: %d", state);
             if (state==0){
@@ -254,16 +256,6 @@ int main(int argc, char **argv)
             break;
 
             case 7:
-	    if(!interrupt_state){
-		    for (int i=0; i<10; i++){
-	                ranOnce[i]=false;
-	                dynVar[i]=0;
-	            }
-	            for (int i=0; i<8; i++){
-	                laserMem[i]=0;
-            	    }
-		    interrupt_state=true;
-	    }
             centerBumper();
             break;
 
@@ -492,13 +484,31 @@ void spinAround(){
     }
     
     if (stepNo==8){
+        int goodIndices=0;
+        int goodArr[8]={0};
         for (int i=1; i<8; i++){
-            if(laserMem[minIndex]<laserMem[i]){
-                ROS_INFO("Curr max: %f, Comp: %f", laserMem[minIndex], laserMem[i]);
-                minIndex=i;
+            if (laserMem[i]>1.2){
+                goodArr[goodIndices]=i;
+                goodIndices++;
             }
-            
-        }ROS_INFO("maxIndex: %d", minIndex);
+        } ROS_INFO("Good Indices: %d", goodIndices);
+        if (goodIndices<2){
+            for (int i=1; i<8; i++){
+                if(laserMem[minIndex]<laserMem[i]){
+                    ROS_INFO("Curr max: %f, Comp: %f", laserMem[minIndex], laserMem[i]);
+                    minIndex=i;
+                }
+            }
+        } else {
+            int randIndex=rand()%goodIndices;
+            minIndex=goodArr[randIndex];
+            dynVar[8]=minIndex;
+        }
+        ROS_INFO("maxIndex: %d", minIndex);
+        stepNo++;
+    }
+    if (stepNo==9){
+        minIndex=dynVar[8];
         if(!turn(DEG2RAD(-45*(minIndex+1)),9) && minIndex!=7){
             ROS_INFO("Ang diff: %d", -45*(minIndex+1));
             return;
@@ -573,6 +583,7 @@ void rightBumper() {
     //the rightBumper function turns the robot left by 30 degrees if the right bumper is hit
     //returns state 0 to move forward
     if(!turn(DEG2RAD(30),1)){
+        linear=-0.1;
         return;
     } else {
         state=0;
@@ -584,6 +595,7 @@ void leftBumper() {
     //the leftBumper function turns the robot right by 30 degrees if the left bumper is hit
     //returns 0 to move forward
     if(!turn(DEG2RAD(-30),1)){
+        linear=-0.1;
         return;
     } else {
         state=0;
@@ -629,7 +641,6 @@ void centerBumper() {
             return;
         } else {
             state=0;
-	    interrupt_state=false;
             return;
         }
     }
