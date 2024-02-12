@@ -189,15 +189,18 @@ int prevState=0;
 uint64_t secondsElapsed = 0;
 
 int longDistTravelCounter = 0;
+float turnSpd = 0.4;
 
 std::chrono::time_point<std::chrono::system_clock> timeoutClk = std::chrono::system_clock::now();
 
 bool longDistTravel(){
     longDistTravelCounter++;
-    if (longDistTravelCounter >= 40){
+    if (longDistTravelCounter >= 70){
         longDistTravelCounter = 0;
+        ROS_INFO("Long Distance achieved");
         //std::cout << "1 meter straight travelling!" << std::endl;
         state = 4;
+        turnSpd=0.8;
         return true;
     } else {
         //std::cout << "NOT YET!" << std::endl;
@@ -244,12 +247,7 @@ int main(int argc, char **argv)
 
         srand(secondsElapsed);
 
-        /*
-        if (secondsElapsed>scheduleSpin && prevState==0){
-            ROS_INFO("Invoking schedule");
-            state=4;
-            scheduleSpin+=40;
-        } */
+      
 
         if (prevState!=state){
             ROS_INFO("State: %d", state);
@@ -327,7 +325,7 @@ void navLogic(){
 
     //before doing anything else do a 360 scan to face most space
     if (spinCount==0) {
-        state =4;
+        state = 4;
         spinCount=1;
         longDistTravelCounter = 0;
     } else if (minLaserDist<distParam || minLaserDist==std::numeric_limits<float>::infinity()){
@@ -413,6 +411,7 @@ void spinAround(){
     if (stepNo==9){
         minIndex=dynVar[8];
         if(!turn(DEG2RAD(-45*(minIndex+1)),9) && minIndex!=7){
+            turnSpd=0.6;
             //ROS_INFO("Ang diff: %d", -45*(minIndex+1));
             return;
         } else {
@@ -442,6 +441,7 @@ void avoid (){
         angular=0.0;
     } else if (objectDetect[0] == true && objectDetect[1] == true && objectDetect[2] == true) {
         state =4;
+        turnSpd=0.4;
     } else {
         state =0;
     }
@@ -451,6 +451,7 @@ void rightBumper() {
     //the rightBumper function turns the robot left by 30 degrees if the right bumper is hit
     //returns state 0 to move forward
     if(!turn(DEG2RAD(30),1)){
+        turnSpd=0.4;
         linear=0;
         return;
     } else {
@@ -463,6 +464,7 @@ void leftBumper() {
     //the leftBumper function turns the robot right by 30 degrees if the left bumper is hit
     //returns 0 to move forward
     if(!turn(DEG2RAD(-30),1)){
+        turnSpd=0.4;
         linear=0;
         return;
     } else {
@@ -478,6 +480,7 @@ void centerBumper() {
 
     volatile int minIndex=1;
     //ROS_INFO("Step: %d", stepNo);
+    turnSpd=0.4;
 
     if(stepNo==0 && !turn(DEG2RAD(-30),stepNo)){
         return;
@@ -501,11 +504,12 @@ void centerBumper() {
     if (stepNo==5){
         for (int i=2; i<5; i++){
             if(laserMem[minIndex]<laserMem[i]){
-                ROS_INFO("current max: %f, compared: %f", laserMem[minIndex], laserMem[i]);
+                //ROS_INFO("current max: %f, compared: %f", laserMem[minIndex], laserMem[i]);
                 minIndex=i;
             }
-        }ROS_INFO("max index: %d", minIndex);
+        } //ROS_INFO("max index: %d", minIndex);
         if(!turn(DEG2RAD(60*(4-minIndex)),6) && minIndex!=5){
+            turnSpd=0.6;
             return;
         } else {
             state=0;
@@ -527,8 +531,8 @@ void emergencyUnstuck(){
 }
 
 bool pathKnown(float test_dist, float test_yaw){
-    float margin=0.25;
-
+    float margin=0.20;
+    /*
     float displace_x=test_dist*cos(test_yaw) + posX;
     float displace_y=test_dist*sin(test_yaw) + posY;
     ROS_INFO("Path tested: %f, %f, %f", displace_x, displace_y, RAD2DEG(test_yaw));
@@ -538,8 +542,8 @@ bool pathKnown(float test_dist, float test_yaw){
             ROS_INFO("Path known");
             return true;
         }
-    }
-    /*
+    }*/
+    
     for (int i=0; i<posMemIdx; i++){
         float displace_x=posXMem[i]-posX;
         float displace_y=posYMem[i]-posY;
@@ -550,7 +554,7 @@ bool pathKnown(float test_dist, float test_yaw){
                 return true;
             }
         }
-    } */
+    } 
     return false;
 }
 
@@ -606,9 +610,9 @@ bool turn(float turnAmt, int ranIdx){ //CCW is +ve, turnAmt is between -pi to pi
     if (yaw > goal+0.08 || yaw < goal-0.08) { //Generall the leniency should be angular*2/10
         //ROS_INFO("yaw: %f, goal, %f", yaw, goal);
         if (turnAmt<0){
-            angular=-0.4;
+            angular=-turnSpd;
         } else {
-            angular=0.4;
+            angular=turnSpd;
         }
         linear = 0.0;
         return false;
