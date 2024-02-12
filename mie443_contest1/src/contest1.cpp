@@ -164,6 +164,7 @@ float idxToAng(int idx); //calculates laser scan angle associated with the array
 bool timeout(uint64_t limit, std::chrono::time_point<std::chrono::system_clock> startPt); //starts a timer to ensure robot does not get stuck in a function
 void angularAdd(float *summand, float angAddend); 
 void spinAround(); //spin 360 and face direction of most space
+bool longDistTravel(); //check surronding if travelling straight for meters continuously
 bool forward(float dist, int ranIdx); //moves robot forward
 void rightBumper(); //turns left if right bumper pressed
 void centerBumper(); //turns around and faces direction of most space if center bumper pressed
@@ -187,7 +188,22 @@ bool doLook=false;
 int prevState=0;
 uint64_t secondsElapsed = 0;
 
+int longDistTravelCounter = 0;
+
 std::chrono::time_point<std::chrono::system_clock> timeoutClk = std::chrono::system_clock::now();
+
+bool longDistTravel(){
+    longDistTravelCounter++;
+    if (longDistTravelCounter >= 40){
+        longDistTravelCounter = 0;
+        //std::cout << "1 meter straight travelling!" << std::endl;
+        state = 4;
+        return true;
+    } else {
+        //std::cout << "NOT YET!" << std::endl;
+        return false; 
+    }
+}
 
 int main(int argc, char **argv)
 {
@@ -313,9 +329,11 @@ void navLogic(){
     if (spinCount==0) {
         state =4;
         spinCount=1;
+        longDistTravelCounter = 0;
     } else if (minLaserDist<distParam || minLaserDist==std::numeric_limits<float>::infinity()){
         linear=0;
         state=1;
+        longDistTravelCounter = 0;
     } else if (objectDetect[1]==true){
         linear=0.10;
         angular=0.0;
@@ -323,10 +341,12 @@ void navLogic(){
     } else if (minLaserDist<farDistParam && minLaserDist>distParam) {
         linear = 0.15;
         angular = 0;
+        longDistTravelCounter = 0;
     } else {
         linear=0.25;
         angular=0.0;
         state=0;
+        longDistTravel();
     }
 
     return;
