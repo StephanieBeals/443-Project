@@ -185,6 +185,9 @@ int posMemIdx=0;
 
 bool doLook=false;
 int prevState=0;
+uint64_t secondsElapsed = 0;
+
+std::chrono::time_point<std::chrono::system_clock> timeoutClk = std::chrono::system_clock::now();
 
 int main(int argc, char **argv)
 {
@@ -204,17 +207,19 @@ int main(int argc, char **argv)
     // contest count down timer
     std::chrono::time_point<std::chrono::system_clock> start;
     start = std::chrono::system_clock::now();
-    uint64_t secondsElapsed = 0;
+    
     
     //DELETE
     //float distParam=0.8;
     state=0;
-
-    while(minLaserDist==std::numeric_limits<float>::infinity()){
+    
+    int timeoutCtr=0;
+    while(minLaserDist==std::numeric_limits<float>::infinity()&&timeoutCtr<30){
         ros::spinOnce();
         loop_rate.sleep();
+        timeoutCtr++;
     }
-
+    int scheduleSpin=240;
 
     while(ros::ok() && secondsElapsed <= 480) {
         ros::spinOnce();
@@ -223,11 +228,21 @@ int main(int argc, char **argv)
 
         srand(secondsElapsed);
 
+        if (secondsElapsed>scheduleSpin && state==0){
+            ROS_INFO("Invoking schedule");
+            state=4;
+            scheduleSpin+=40;
+        }
+        
         if (prevState!=state){
-            //ROS_INFO("State: %d", state);
-        }  
-        //assigning states to each function
+            ROS_INFO("State: %d", state);
+            if (state==4){
+                timeoutClk=std::chrono::system_clock::now();
+            }
+        }
         prevState=state;
+
+        
         
         switch(state){ //4 min for collision avoidance (random walk w/ memory), 4 min for corner travelling
             case 0:
@@ -278,8 +293,10 @@ int main(int argc, char **argv)
         secondsElapsed = std::chrono::duration_cast<std::chrono::seconds>(std::chrono::system_clock::now()-start).count();
         loop_rate.sleep();
     }
-    //delete laserVals;
 
+    for (int i=0; i<posMemIdx; i++){
+        ROS_INFO("Memory: %d, %f, %f", i, posXMem[i], posYMem[i]);
+    }
     return 0;
 }
 
@@ -288,7 +305,7 @@ void navLogic(){
     //Last state is default, move in a straight line forward
     //Need some way to remember last state
     float distParam=0.7;
-    float farDistParam=1.0;
+    float farDistParam=1.2;
     //ROS_INFO("MinLaserDist: %f", minLaserDist);
 
     //before doing anything else do a 360 scan to face most space
@@ -317,9 +334,14 @@ void navLogic(){
 void spinAround(){
     //the spinAround function spins the robot 360 degrees and uses the laser scan to orient itself to the index with the most space
     //returns to state 0 when done to move forward
+    //There seems to be a 15 degree overshoot after doing the full turn around. Maybe consider accounting for it?
     
     volatile int minIndex=0;
     //ROS_INFO("Step: %d", stepNo);
+    if (timeout(40, timeoutClk)){
+        ROS_INFO("Spin around timeout, invoking unstuck");
+        state=9;
+    }
     
     if(stepNo<8 && !turn(DEG2RAD(-45),stepNo)){
         return;
@@ -340,10 +362,12 @@ void spinAround(){
         int goodArr[8]={0};
         for (int i=0; i<8; i++){
             if (laserMem[i]>1.2){
-                if (!pathKnown(laserMem[i], yaw+DEG2RAD(-45.0*(i+1)))){
+                float temp_yaw=dynVar[0];
+                angularAdd(&temp_yaw, DEG2RAD(-45.0*(i+1)));
+                if (!pathKnown(laserMem[i], temp_yaw)){
                     goodArr[goodIndices]=i;
                     goodIndices++;
-                } else ROS_INFO("Path known: %d", (i+1)*45);
+                } else ROS_INFO("Path known: %d", i);
             }
         } ROS_INFO("Good Indices: %d", goodIndices);
         if (goodIndices<2){
@@ -371,6 +395,7 @@ void spinAround(){
             //ROS_INFO("Ang diff: %d", -45*(minIndex+1));
             return;
         } else {
+            ROS_INFO("Adding to memory, %d: %f, %f", posMemIdx, posX,posY);
             posXMem[posMemIdx]=posX;
             posYMem[posMemIdx]=posY;
             posMemIdx++;
@@ -473,24 +498,38 @@ void centerBumper() {
 void emergencyUnstuck(){
     if (objectDetect[1]!=false){
         angular=0.2;
+        linear=0;
     } else {
         state=0;
         return;
     }
 }
 
-bool pathKnown(float test_dist, float mem_yaw){
+bool pathKnown(float test_dist, float test_yaw){
+    float margin=0.25;
+
+    float displace_x=test_dist*cos(test_yaw) + posX;
+    float displace_y=test_dist*sin(test_yaw) + posY;
+    ROS_INFO("Path tested: %f, %f, %f", displace_x, displace_y, RAD2DEG(test_yaw));
+    
+    for (int i=0; i<posMemIdx; i++){
+        if (displace_x<posXMem[i]+margin && displace_x>posXMem[i]-margin && displace_y<posYMem[i]+margin && displace_y>posYMem[i]-margin){
+            ROS_INFO("Path known");
+            return true;
+        }
+    }
+    /*
     for (int i=0; i<posMemIdx; i++){
         float displace_x=posXMem[i]-posX;
         float displace_y=posYMem[i]-posY;
-        float test_yaw=atan2(displace_y, displace_x);
+        float disp_yaw=atan2(displace_y, displace_x);
         float displace_dist=sqrt((displace_x*displace_x)+(displace_y*displace_y));
-        if (mem_yaw<test_yaw+7 && mem_yaw>test_yaw-7){
-            if (displace_dist+0.1>test_dist && displace_dist-0.1<test_dist){
+        if (disp_yaw<test_yaw+7 && disp_yaw>test_yaw-7){
+            if (displace_dist+margin>test_dist && displace_dist-margin<test_dist){
                 return true;
             }
         }
-    }
+    } */
     return false;
 }
 
@@ -513,7 +552,8 @@ bool timeout(uint64_t limit, std::chrono::time_point<std::chrono::system_clock> 
     //Returns true if the limit has passed since the timer start was initialized
     //Runs in milliseconds
     auto now = std::chrono::system_clock::now();
-    if (std::chrono::duration_cast<std::chrono::milliseconds>(now-startPt).count()<limit)return false;
+    int timePassed=std::chrono::duration_cast<std::chrono::seconds>(now-startPt).count();
+    if (timePassed<limit)return false;
     else return true;
 }
 
