@@ -228,12 +228,13 @@ int main(int argc, char **argv)
 
         srand(secondsElapsed);
 
-        if (secondsElapsed>scheduleSpin && state==0){
+        /*
+        if (secondsElapsed>scheduleSpin && prevState==0){
             ROS_INFO("Invoking schedule");
             state=4;
             scheduleSpin+=40;
-        }
-        
+        } */
+
         if (prevState!=state){
             ROS_INFO("State: %d", state);
             if (state==4){
