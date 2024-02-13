@@ -98,10 +98,10 @@ void laserCallback(const sensor_msgs::LaserScan::ConstPtr& msg) {
             if(laser_idx!=0){
                 laserFirstDiff[laser_idx]=laserVals[laser_idx]-laserVals[laser_idx-1];
             }
-            if (laser_idx<294 && (laserVals[laser_idx]<0.7|| laserVals[laser_idx]==std::numeric_limits<float>::infinity())){
+            if (laser_idx<294 && (laserVals[laser_idx]<0.8|| laserVals[laser_idx]==std::numeric_limits<float>::infinity())){
                 objectDetect[0]=true;
                 //ROS_INFO("Object on left");
-            } else if (laser_idx>344 &&  (laserVals[laser_idx]<0.7|| laserVals[laser_idx]==std::numeric_limits<float>::infinity())){
+            } else if (laser_idx>344 &&  (laserVals[laser_idx]<0.8|| laserVals[laser_idx]==std::numeric_limits<float>::infinity())){
                 objectDetect[2]=true;
                 //ROS_INFO("Object on right");
             } else if (laser_idx < 344 && laser_idx>294 && (laserVals[laser_idx]<0.7|| laserVals[laser_idx]==std::numeric_limits<float>::infinity())){
@@ -171,12 +171,11 @@ float posXMem[30]={0.0};
 float posYMem[30]={0.0};
 int posMemIdx=0;
 
-bool doLook=false;
 int prevState=0;
 uint64_t secondsElapsed = 0;
 
 int longDistTravelCounter = 0;
-float turnSpd = 0.4;
+float turnSpd = 0.3;
 
 std::chrono::time_point<std::chrono::system_clock> timeoutClk = std::chrono::system_clock::now();
 
@@ -187,13 +186,15 @@ bool longDistTravel(){
         ROS_INFO("Long Distance achieved");
         //std::cout << "1 meter straight travelling!" << std::endl;
         state = 4;
-        turnSpd=0.8;
+        turnSpd=0.5;
         return true;
     } else {
         //std::cout << "NOT YET!" << std::endl;
         return false; 
     }
 }
+
+bool interruptState=false;
 
 int main(int argc, char **argv)
 {
@@ -241,6 +242,7 @@ int main(int argc, char **argv)
             if (state==4){
                 timeoutClk=std::chrono::system_clock::now();
             }
+            longDistTravelCounter=0;
         }
         prevState=state;
 
@@ -257,6 +259,7 @@ int main(int argc, char **argv)
                 laserMem[i]=0;
             }
             stepNo=0;
+            
             dynIdx=0;
             break;
 
@@ -313,6 +316,7 @@ void navLogic(){
     //before doing anything else do a 360 scan to face most space
     if (spinCount==0) {
         state = 4;
+        turnSpd=0.3;
         spinCount=1;
         longDistTravelCounter = 0;
     } else if (minLaserDist<distParam || minLaserDist==std::numeric_limits<float>::infinity()){
@@ -367,7 +371,7 @@ void spinAround(){
         int goodIndices=0;
         int goodArr[8]={0};
         for (int i=0; i<8; i++){
-            if (laserMem[i]>1.2){
+            if (laserMem[i]>1.4){
                 float temp_yaw=dynVar[0];
                 angularAdd(&temp_yaw, DEG2RAD(-45.0*(i+1)));
                 if (!pathKnown(laserMem[i], temp_yaw)){
@@ -398,14 +402,17 @@ void spinAround(){
     if (stepNo==9){
         minIndex=dynVar[8];
         if(!turn(DEG2RAD(-45*(minIndex+1)),9) && minIndex!=7){
-            turnSpd=0.6;
+            turnSpd=0.5;
             //ROS_INFO("Ang diff: %d", -45*(minIndex+1));
             return;
         } else {
             ROS_INFO("Adding to memory, %d: %f, %f", posMemIdx, posX,posY);
-            posXMem[posMemIdx]=posX;
-            posYMem[posMemIdx]=posY;
-            posMemIdx++;
+            if (posMemIdx<30){
+                posXMem[posMemIdx]=posX;
+                 posYMem[posMemIdx]=posY;
+                posMemIdx++;
+            }
+            
             state=0;
             return;
         }
@@ -427,10 +434,10 @@ void avoid (){
         linear=0.25;
         angular=0.0;
     } else if (objectDetect[0] == true && objectDetect[1] == true && objectDetect[2] == true) {
-        state =4;
-        turnSpd=0.4;
+        state = 4;
+        turnSpd=0.3;
     } else {
-        state =0;
+        state = 0;
     }
 }
 
@@ -464,6 +471,18 @@ void centerBumper() {
     //the centerBumper function spins the robot and scans the 180 degrees behind the direction of the obstacle and faces the 
     //direction withmost space
     //returns state 0 to move forward
+    if (!interruptState){
+        for (int i=0; i<10; i++){
+            ranOnce[i]=false;
+            dynVar[i]=0;
+        }
+        for (int i=0; i<8; i++){
+            laserMem[i]=0;
+        }
+        stepNo=0;
+        dynIdx=0;
+        interruptState=true;
+    }
 
     volatile int minIndex=1;
     //ROS_INFO("Step: %d", stepNo);
@@ -489,17 +508,28 @@ void centerBumper() {
     }
 
     if (stepNo==5){
+        int goodCtr=0;
         for (int i=2; i<5; i++){
             if(laserMem[minIndex]<laserMem[i]){
                 //ROS_INFO("current max: %f, compared: %f", laserMem[minIndex], laserMem[i]);
                 minIndex=i;
             }
+            if(laserMem[i]>0.7){
+                goodCtr++;
+            }
+
         } //ROS_INFO("max index: %d", minIndex);
+        if (goodCtr==0){
+            state=9;
+            interruptState=false;
+            return;
+        }
         if(!turn(DEG2RAD(60*(4-minIndex)),6) && minIndex!=5){
-            turnSpd=0.6;
+            turnSpd=0.5;
             return;
         } else {
             state=0;
+            interruptState=false;
             return;
         }
     }
@@ -518,7 +548,7 @@ void emergencyUnstuck(){
 }
 
 bool pathKnown(float test_dist, float test_yaw){
-    float margin=0.20;
+    float margin=0.25;
     /*
     float displace_x=test_dist*cos(test_yaw) + posX;
     float displace_y=test_dist*sin(test_yaw) + posY;
@@ -536,8 +566,10 @@ bool pathKnown(float test_dist, float test_yaw){
         float displace_y=posYMem[i]-posY;
         float disp_yaw=atan2(displace_y, displace_x);
         float displace_dist=sqrt((displace_x*displace_x)+(displace_y*displace_y));
-        if (disp_yaw<test_yaw+7 && disp_yaw>test_yaw-7){
-            if (displace_dist+margin>test_dist && displace_dist-margin<test_dist){
+        ROS_INFO("Path tested: %f, %f, %f", posXMem[i], posYMem[i], RAD2DEG(test_yaw));
+        if (disp_yaw<test_yaw+10 && disp_yaw>test_yaw-10){
+            if (displace_dist+2*margin>test_dist && displace_dist-margin<test_dist){
+                ROS_INFO("Path known");
                 return true;
             }
         }
