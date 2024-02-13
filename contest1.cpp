@@ -68,14 +68,6 @@ void bumperCallback(const kobuki_msgs::BumperEvent::ConstPtr& msg){
         bumperPressed=false;
     }
     
-    //DELETE
-    /*for (int i=0; i<3; i++){
-        if (bumper[i]==kobuki_msgs::BumperEvent::PRESSED){
-            state=9;
-            bumperPressed=true;
-        }
-        else (bumperPressed=false);
-    }*/
 }
 //Go to https://docs.ros.org/en/api/sensor_msgs/html/msg/LaserScan.html
 //First entry is on robot right (-ve Y), going CCW around robot
@@ -153,12 +145,7 @@ void odomCallback(const nav_msgs::Odometry::ConstPtr& msg){
 }
 
 void navLogic(); //overall default navigation and conditions to switch states
-//void bumperFailSafe(); //DELETE
-//bool orientToNormal(); //DELETE
 bool turn(float turnAmt, int ranIdx); //takes in an angle amount and turns the robot
-//bool moveToPt(); //DELETE
-//void decideDirection(); //decides if 90 degree left or right has most free path: DELETE
-//void wallFollow(); //once at an obstacle turns 90 degrees left and wall follows: DELETE
 void avoid(); //turns left, right, or spins to avoid obstacles
 float idxToAng(int idx); //calculates laser scan angle associated with the array indices
 bool timeout(uint64_t limit, std::chrono::time_point<std::chrono::system_clock> startPt); //starts a timer to ensure robot does not get stuck in a function
